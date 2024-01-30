@@ -1,0 +1,3 @@
+[tool.poetry]
+name = "wagtail"
+version = "4.1.6"
