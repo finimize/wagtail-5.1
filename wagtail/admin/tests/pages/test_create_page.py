@@ -87,10 +87,12 @@ class TestPageCreation(TestCase, WagtailTestUtils):
                 post_data,
             )
 
+        page_published.disconnect(map_wagtail_signal)
+
         # check @transaction.atomic decorator invoked
         mock_atomic.assert_called()
 
-        # Check that the page was not created (as the transaction should be rolled back)
+        # Check that the page was not created, as the transaction is rolled back
         child_page = SimplePage.objects.filter(title=post_data["title"])
         self.assertEquals(len(child_page), 0)
 

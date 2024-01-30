@@ -1,6 +1,7 @@
 from unittest import mock
 
 from django.contrib.auth.models import Permission
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.test import TestCase
 from django.urls import reverse
@@ -25,6 +26,32 @@ class TestPageUnpublish(TestCase, WagtailTestUtils):
             live=True,
         )
         self.root_page.add_child(instance=self.page)
+
+    @mock.patch("wagtail.admin.views.pages.unpublish.transaction.atomic", wraps=transaction.atomic)
+    def test_unpublish_page_transaction_rolled_back_on_error(self, mock_atomic):
+        """
+        Ensure that any db operations triggered from the unpublish method
+        will be rolled back in the event of an exception being raised.
+        """
+
+        # Connect a signal handler (that raises an exception) to page_unpublished signal
+        def map_wagtail_signal(sender, **kwargs):
+            raise Exception('some issue')
+
+        page_unpublished.connect(map_wagtail_signal)
+
+        with self.assertRaises(Exception):
+            self.client.post(
+                reverse("wagtailadmin_pages:unpublish", args=(self.page.id,))
+            )
+
+        page_unpublished.disconnect(map_wagtail_signal)
+
+        # check @transaction.atomic decorator invoked
+        mock_atomic.assert_called()
+
+        # Check that the page was not unpublished, as the transaction is rolled back
+        self.assertTrue(SimplePage.objects.get(id=self.page.id).live)
 
     def test_unpublish_view(self):
         """

@@ -190,10 +190,12 @@ class TestPageEdit(TestCase, WagtailTestUtils):
                 follow=True,
             )
 
+        page_published.disconnect(map_wagtail_signal)
+
         # check @transaction.atomic decorator invoked
         mock_atomic.assert_called()
 
-        # Check that the page was not edited (as the transaction should be rolled back)
+        # Check that the page was not edited, as the transaction is rolled back
         child_page = SimplePage.objects.get(id=self.child_page.id)
         self.assertNotEqual(child_page.title, post_data["title"])
 
