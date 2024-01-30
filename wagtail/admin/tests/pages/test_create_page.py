@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 from django.contrib.auth.models import Group, Permission
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.test import TestCase
 from django.test.utils import override_settings
@@ -56,6 +57,42 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         self.assertNotContains(response, "Abstract page")
         # List of available page types should not contain pages whose parent_page_types forbid it
         self.assertNotContains(response, "Business child")
+
+    @mock.patch("wagtail.admin.views.pages.create.transaction.atomic", wraps=transaction.atomic)
+    def test_create_page_publish_transaction_rolled_back_on_error(self, mock_atomic):
+        """
+        Ensure that any db operations triggered from the page_publish method
+        will be rolled back in the event of an exception being raised.
+        """
+
+        # Connect a signal handler (that raises an exception) to page_published signal
+        def map_wagtail_signal(sender, **kwargs):
+            raise Exception('some issue')
+
+        page_published.connect(map_wagtail_signal)
+
+        post_data = {
+            "title": "New page!",
+            "content": "Some content",
+            "slug": "hello-world",
+            "action-publish": "Publish",
+        }
+
+        with self.assertRaises(Exception):
+            self.client.post(
+                reverse(
+                    "wagtailadmin_pages:add",
+                    args=("tests", "simplepage", self.root_page.id),
+                ),
+                post_data,
+            )
+
+        # check @transaction.atomic decorator invoked
+        mock_atomic.assert_called()
+
+        # Check that the page was not created (as the transaction should be rolled back)
+        child_page = SimplePage.objects.filter(title=post_data["title"])
+        self.assertEquals(len(child_page), 0)
 
     def test_add_subpage_with_subpage_types(self):
         # Add a BusinessIndex to test business rules in

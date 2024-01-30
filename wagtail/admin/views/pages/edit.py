@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db.models import Prefetch, Q
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -533,6 +534,7 @@ class EditView(TemplateResponseMixin, ContextMixin, HookResponseMixin, View):
         # Just saving - remain on edit page for further edits
         return self.redirect_and_remain()
 
+    @transaction.atomic
     def publish_action(self):
         self.page = self.form.save(commit=False)
         self.subscription.save()

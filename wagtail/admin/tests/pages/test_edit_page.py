@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth.models import Group, Permission
 from django.core import mail
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.test import TestCase, modify_settings, override_settings
 from django.urls import reverse
@@ -160,6 +161,41 @@ class TestPageEdit(TestCase, WagtailTestUtils):
         url_finder = AdminURLFinder(self.user)
         expected_url = "/admin/pages/%d/edit/" % self.event_page.id
         self.assertEqual(url_finder.get_edit_url(self.event_page), expected_url)
+
+    @mock.patch("wagtail.admin.views.pages.edit.transaction.atomic", wraps=transaction.atomic)
+    def test_edit_page_publish_transaction_rolled_back_on_error(self, mock_atomic):
+        """
+        Ensure that any db operations triggered from the page_publish method
+        will be rolled back in the event of an exception being raised.
+        """
+
+        # Connect a signal handler (that raises an exception) to page_published signal
+        def map_wagtail_signal(sender, **kwargs):
+            raise Exception('some issue')
+
+        page_published.connect(map_wagtail_signal)
+
+        # Tests publish from edit page
+        post_data = {
+            "title": "I've been edited!",
+            "content": "Some content",
+            "slug": "hello-world-new",
+            "action-publish": "Publish",
+        }
+
+        with self.assertRaises(Exception):
+            self.client.post(
+                reverse("wagtailadmin_pages:edit", args=(self.child_page.id,)),
+                post_data,
+                follow=True,
+            )
+
+        # check @transaction.atomic decorator invoked
+        mock_atomic.assert_called()
+
+        # Check that the page was not edited (as the transaction should be rolled back)
+        child_page = SimplePage.objects.get(id=self.child_page.id)
+        self.assertNotEqual(child_page.title, post_data["title"])
 
     @override_settings(WAGTAIL_WORKFLOW_ENABLED=False)
     def test_workflow_buttons_not_shown_when_workflow_disabled(self):
@@ -3644,3 +3680,4 @@ class TestCommenting(TestCase, WagtailTestUtils):
 
         # No emails should be submitted because subscriber is inactive
         self.assertEqual(len(mail.outbox), 0)
+
