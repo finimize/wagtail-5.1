@@ -81,7 +81,7 @@ documentation_extras = [
 
 setup(
     name="wagtail",
-    version=4.1.6,
+    version="4.1.6",
     description="A Django content management system.",
     author="Wagtail core team + contributors",
     author_email="hello@wagtail.org",  # For support queries, please see https://docs.wagtail.org/en/stable/support.html
