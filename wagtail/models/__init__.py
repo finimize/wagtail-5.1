@@ -2824,6 +2824,7 @@ class Revision(models.Model):
 
         return super().delete()
 
+    @transaction.atomic
     def publish(self, user=None, changed=True, log_action=True, previous_revision=None):
         return self.content_object.publish(
             self,
