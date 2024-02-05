@@ -5,7 +5,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core import management
-from django.db import models
+from django.db import models, transaction
 from django.test import TestCase
 from django.utils import timezone
 
@@ -221,6 +221,55 @@ class TestPublishScheduledPagesCommand(WagtailTestUtils, TestCase):
         self.assertTrue(signal_fired[0])
         self.assertEqual(signal_page[0], page)
         self.assertEqual(signal_page[0], signal_page[0].specific)
+
+    @mock.patch("wagtail.admin.views.pages.unpublish.transaction.atomic", wraps=transaction.atomic)
+    def test_go_live_page_not_published_on_transaction_rollback(self, mock_atomic):
+        """
+        Ensure that any db operations triggered from the publish method
+        will be rolled back in the event of an exception being raised.
+        """
+
+        # Connect a signal handler (that raises an exception) to page_published signal
+        def map_wagtail_signal(sender, **kwargs):
+            raise Exception('some issue')
+
+        page_published.connect(map_wagtail_signal)
+
+        page = SimplePage(
+            title="Hello world!",
+            slug="hello-world",
+            content="hello",
+            live=False,
+            has_unpublished_changes=True,
+            go_live_at=timezone.now() - timedelta(days=1),
+        )
+        self.root_page.add_child(instance=page)
+
+        page.save_revision(approved_go_live_at=timezone.now() - timedelta(days=1))
+
+        p = Page.objects.get(slug="hello-world")
+        self.assertFalse(p.live)
+        self.assertTrue(
+            Revision.page_revisions.filter(object_id=p.id)
+            .exclude(approved_go_live_at__isnull=True)
+            .exists()
+        )
+
+        with self.assertRaises(Exception):
+            management.call_command("publish_scheduled_pages")
+
+        page_published.disconnect(map_wagtail_signal)
+
+        # check @transaction.atomic decorator invoked
+        mock_atomic.assert_called()
+
+        p_after_cmd = Page.objects.get(slug="hello-world")
+        self.assertFalse(p_after_cmd.live)
+        self.assertTrue(
+            Revision.page_revisions.filter(object_id=p_after_cmd.id)
+            .exclude(approved_go_live_at__isnull=True)
+            .exists()
+        )
 
     def test_go_live_page_created_by_editor_will_be_published(self):
         # Connect a mock signal handler to page_published signal

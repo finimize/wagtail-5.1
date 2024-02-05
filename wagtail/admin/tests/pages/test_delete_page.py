@@ -2,6 +2,7 @@ from unittest import mock
 
 from django.contrib.auth.models import Permission
 from django.db.models.signals import post_delete, pre_delete
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -39,6 +40,32 @@ class TestPageDelete(TestCase, WagtailTestUtils):
         self.assertEqual(response.status_code, 200)
         # deletion should not actually happen on GET
         self.assertTrue(SimplePage.objects.filter(id=self.child_page.id).exists())
+
+    @mock.patch("wagtail.admin.views.pages.delete.transaction.atomic", wraps=transaction.atomic)
+    def test_delete_page_transaction_rolled_back_on_error(self, mock_atomic):
+        """
+        Ensure that any db operations triggered from the delete method
+        will be rolled back in the event of an exception being raised.
+        """
+
+        # Connect a signal handler (that raises an exception) to page_unpublished signal
+        def map_wagtail_signal(sender, **kwargs):
+            raise Exception('some issue')
+
+        post_delete.connect(map_wagtail_signal)
+
+        with self.assertRaises(Exception):
+            self.client.post(
+                reverse("wagtailadmin_pages:delete", args=(self.child_page.id,))
+            )
+
+        post_delete.disconnect(map_wagtail_signal)
+
+        # check @transaction.atomic decorator invoked
+        mock_atomic.assert_called()
+
+        # Check that the page was not unpublished, as the transaction is rolled back
+        self.assertTrue(SimplePage.objects.get(id=self.child_page.id).live)
 
     @override_settings(WAGTAILADMIN_UNSAFE_PAGE_DELETION_LIMIT=10)
     def test_confirm_delete_scenario_1(self):

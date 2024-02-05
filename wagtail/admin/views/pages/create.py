@@ -3,6 +3,7 @@ from urllib.parse import quote, urlencode
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
@@ -189,6 +190,7 @@ class CreateView(TemplateResponseMixin, ContextMixin, HookResponseMixin, View):
         # remain on edit page for further edits
         return self.redirect_and_remain()
 
+    @transaction.atomic
     def publish_action(self):
         self.page = self.form.save(commit=False)
 

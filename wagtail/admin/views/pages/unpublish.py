@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -56,6 +57,7 @@ class Unpublish(UnpublishView):
 
         return list(objects_to_unpublish)
 
+    @transaction.atomic
     def unpublish(self):
         hook_response = self.run_hook(
             "before_unpublish_page", self.request, self.object
